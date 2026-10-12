@@ -404,7 +404,7 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
         <form onsubmit="login(event)">
             <div class="form-group">
                 <label>অ্যাডমিন পাসওয়ার্ড</label>
-                <input id="loginPassword" type="password" required autocomplete="current-password" placeholder="অ্যাডমিন পাসওয়ার্ড দিন (ডিফল্ট: 0255)">
+                <input id="loginPassword" type="password" required autocomplete="current-password" placeholder="অ্যাডমিন পাসওয়ার্ড দিন">
             </div>
             <button class="btn btn-primary full" type="submit">🔐 শুভ প্রবেশ (Admin Login)</button>
         </form>
@@ -814,7 +814,7 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
     </div>
 </div>
 
-<!-- EXIT / SETTLEMENT MODAL (শেয়ারের উপর ভিত্তি করে স্বয়ংক্রিয় হিসাব) -->
+<!-- EXIT / SETTLEMENT MODAL -->
 <div id="settleModal" class="modal">
     <div class="modal-box">
         <div class="modal-head">
@@ -1186,14 +1186,11 @@ function calculateSocietyNetWorthAndShare(memberId = null){
     const outstandingPrincipal = activeLoans.reduce((s, l) => s + loanPrincipalRemaining(l), 0);
     const accruedInterest = activeLoans.reduce((s, l) => s + loanInterestRemaining(l), 0);
 
-    // সমিতির মোট সম্পদ = ক্যাশ ব্যালেন্স + ফেরতযোগ্য আসল লোন + বকেয়া লোন সুদ
     const totalAssets = cash + outstandingPrincipal + accruedInterest;
 
-    // মোট সক্রিয় সঞ্চয় মূলধন
     const activeMembers = db.members.filter(m => !m.isSettled);
     const totalSavingsCapital = activeMembers.reduce((s, m) => s + memberSavings(m.id), 0);
 
-    // মোট মুনাফা/উদ্বৃত্ত (Profit/Surplus)
     const netProfit = Math.max(0, totalAssets - totalSavingsCapital);
 
     if(!memberId) {
@@ -1207,10 +1204,8 @@ function calculateSocietyNetWorthAndShare(memberId = null){
     const myShareRatio = totalSavingsCapital > 0 ? (mySavings / totalSavingsCapital) : (1 / Math.max(1, activeMembers.length));
     const myProfitShare = netProfit * myShareRatio;
 
-    // এক্সিটের সময় গ্রস প্রাপ্য
     const grossExitAsset = mySavings + myProfitShare;
 
-    // বাদ যাবে নিজের আসল লোন, সুদ ও সঞ্চয় ফাইন
     const myLoanP = memberTotalPrincipalRemaining(m.id);
     const myLoanI = memberTotalInterestDue(m.id);
     const myFine = memberFineDue(m);
@@ -1270,7 +1265,7 @@ function renderAdminDashboard(){
         const dueMonths = memberDueMonths(m);
         const fine = memberFineDue(m);
         const pRemaining = memberTotalPrincipalRemaining(m.id);
-        const intDue = memberTotalInterestDue(m.id); // একত্রে সুদ
+        const intDue = memberTotalInterestDue(m.id);
         const totalLiability = due + fine + pRemaining + intDue;
 
         totalDue += due;
@@ -1306,20 +1301,17 @@ function renderAdminDashboard(){
     document.getElementById("statNetAsset").textContent = money(netWorth.totalAssets);
 }
 
-// সদস্যের নিজস্ব ভিউ লিংক তৈরি
 function getMemberPortalUrl(memberId){
     const base = window.location.origin + window.location.pathname;
     return `${base}?member=${encodeURIComponent(memberId)}`;
 }
 
-// UPI ডিপ লিঙ্ক জেনারেটর
 function createUpiPaymentUri(amount, note = "Baishakhi Samiti"){
     const upiId = db.settings.adminUpiId || "";
     if(!upiId) return "";
     return `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent("Baishakhi Samiti")}&am=${amount}&cu=INR&tn=${encodeURIComponent(note)}`;
 }
 
-// মেম্বার সরাসরি PhonePe / GPay থেকে পেমেন্ট করার লিঙ্ক পাঠানো
 function sendUpiPaymentLink(memberId, totalDue){
     const m = db.members.find(x => x.id === memberId);
     if(!m) return;
@@ -1336,7 +1328,6 @@ function sendUpiPaymentLink(memberId, totalDue){
     window.open(waUrl, '_blank');
 }
 
-// স্টেটমেন্ট পেজ থেকে লিঙ্ক পাঠানো
 function shareStatementLinkFromSelect(){
     const memberId = document.getElementById("statementMemberSelect").value;
     if(!memberId) return;
@@ -1350,7 +1341,7 @@ function shareStatementLinkFromSelect(){
     sendUpiPaymentLink(memberId, totalDue);
 }
 
-// পাবলিক মেম্বার পোর্টাল রেন্ডারিং
+// মেম্বার পাবলিক ভিউ পোর্টাল (অ্যাডমিন লিঙ্ক সরানো হয়েছে)
 function openMemberPublicPortal(memberId){
     document.getElementById("loginScreen").classList.add("hidden");
     document.getElementById("app").classList.add("hidden");
@@ -1363,7 +1354,6 @@ function openMemberPublicPortal(memberId){
             <div style="text-align:center; padding:30px;">
                 <h3 style="color:red;">সদস্যের তথ্য খুঁজে পাওয়া যায়নি!</h3>
                 <p>দয়া করে সঠিক মেম্বার লিঙ্কটি ব্যবহার করুন।</p>
-                <a href="${window.location.origin + window.location.pathname}" class="btn btn-secondary" style="margin-top:15px;">হোম পেজে যান</a>
             </div>
         `;
         return;
@@ -1374,7 +1364,7 @@ function openMemberPublicPortal(memberId){
     const dueMonths = memberDueMonths(m);
     const fine = memberFineDue(m);
     const pRem = memberTotalPrincipalRemaining(m.id);
-    const iRem = memberTotalInterestDue(m.id); // একত্রে সুদ
+    const iRem = memberTotalInterestDue(m.id);
     const totalPayable = due + fine + pRem + iRem;
 
     const societyInfo = calculateSocietyNetWorthAndShare();
@@ -1420,7 +1410,7 @@ function openMemberPublicPortal(memberId){
                     অথবা এই UPI ID-তে পাঠান: <b>${db.settings.adminUpiId}</b>
                 </div>
             ` : `
-                <div style="font-size:13px; color:#b91c1c;">UPI আইডি সেটিংস থেকে সক্রিয় করা নেই। নগদ বা অ্যাডমিনের সাথে যোগাযোগ করুন।</div>
+                <div style="font-size:13px; color:#b91c1c;">UPI আইডি সেটিংস থেকে সক্রিয় করা নেই। নগদ জমা দিন।</div>
             `}
         </div>
 
@@ -1439,7 +1429,6 @@ function openMemberPublicPortal(memberId){
 
         <div style="text-align:center;">
             <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ এই পেজটি প্রিন্ট করুন</button>
-            <a href="${window.location.origin + window.location.pathname}" class="btn btn-secondary btn-sm" style="margin-left:8px;">অ্যাডমিন প্রবেশ</a>
         </div>
     `;
 
@@ -1474,7 +1463,6 @@ function saveMember(e){
         isSettled: false
     });
 
-    // প্রারম্ভিক সঞ্চয় এন্ট্রি
     db.payments.push({
         id: "PAY-ENTRY-" + Date.now(),
         memberId: id,
@@ -1498,8 +1486,7 @@ function renderMembersTable(){
     db.members.forEach(m => {
         const savings = memberSavings(m.id);
         const pRem = memberTotalPrincipalRemaining(m.id);
-        const iRem = memberTotalInterestDue(m.id); // একত্রে সুদ
-        const portalUrl = getMemberPortalUrl(m.id);
+        const iRem = memberTotalInterestDue(m.id);
 
         tbody.innerHTML += `
             <tr style="${m.isSettled ? 'background:#fdf2f8;opacity:0.85;' : ''}">
@@ -1541,7 +1528,6 @@ function sendMemberPortalLinkViaWhatsApp(memberId){
     window.open(`https://wa.me/91${phone}?text=${encodeURIComponent(text)}`, '_blank');
 }
 
-// লোন বিতরণ
 function openLoanModal(){
     const select = document.getElementById("loanMemberSelect");
     select.innerHTML = "";
@@ -1616,7 +1602,6 @@ function renderLoansTable(){
     });
 }
 
-// লোন টেবিল থেকে সরাসরি ম্যানুয়াল আসল জমা
 function openDirectPrincipalPayment(memberId, loanId, maxAmount){
     openPaymentForSpecificMember(memberId);
     document.getElementById("payTypeSelect").value = "LOAN_PRINCIPAL";
@@ -1633,7 +1618,6 @@ function deleteLoan(loanId){
     }
 }
 
-// পেমেন্ট মডাল হ্যান্ডলিং
 function openPaymentModal(){
     const select = document.getElementById("payMemberSelect");
     select.innerHTML = "";
@@ -1666,7 +1650,7 @@ function onAdminSelectPayMember(){
     const fine = isBackDate ? 0 : memberFineDue(m, asOfDate);
 
     const pRemaining = memberTotalPrincipalRemaining(m.id, asOfDate);
-    const totalIntDue = memberTotalInterestDue(m.id, asOfDate); // একত্রে সুদ
+    const totalIntDue = memberTotalInterestDue(m.id, asOfDate);
 
     document.getElementById("admBoxSavingsDue").textContent = money(due);
     document.getElementById("admBoxDueMonths").textContent = `${dueMonths} টি কিস্তি`;
@@ -1676,7 +1660,7 @@ function onAdminSelectPayMember(){
     document.getElementById("admBoxTotalDue").textContent = money(due + fine + pRemaining + totalIntDue);
 
     document.getElementById("comboSavingsAmount").value = due > 0 ? due : (db.settings.monthlyDeposit || 500);
-    document.getElementById("comboPrincipalAmount").value = ""; // ম্যানুয়াল আসল এন্ট্রির জন্য খালি রাখা
+    document.getElementById("comboPrincipalAmount").value = "";
     document.getElementById("comboInterestAmount").value = totalIntDue;
     updateComboTotal();
 }
@@ -1713,7 +1697,6 @@ function toggleAdminLoanField(){
     }
 }
 
-// পেমেন্ট সেভ (ম্যানুয়াল আসল লোন সমন্বয়)
 function saveAdminPayment(){
     const memberId = document.getElementById("payMemberSelect").value;
     const type = document.getElementById("payTypeSelect").value;
@@ -1873,7 +1856,6 @@ function renderReportsTable(){
     });
 }
 
-// মেম্বার বের হয়ে যাওয়ার স্বয়ংক্রিয় শেয়ার ভিত্তিক হিসাব (Exit Settlement)
 function openSettleModal(memberId){
     const data = calculateSocietyNetWorthAndShare(memberId);
     if(!data) return;
@@ -1928,7 +1910,6 @@ function populateStatementMemberSelect(){
     if(currentVal) sel.value = currentVal;
 }
 
-// স্টেটমেন্ট প্রিভিউ রেন্ডারিং (যেখান থেকে অ্যাডমিন বা মেম্বার সরাসরি পেমেন্ট করতে পারবে)
 function renderStatementPreview(){
     const sel = document.getElementById("statementMemberSelect");
     const container = document.getElementById("statementPreviewArea");
@@ -1941,7 +1922,7 @@ function renderStatementPreview(){
     const due = memberSavingsDue(m);
     const fine = memberFineDue(m);
     const pRem = memberTotalPrincipalRemaining(m.id);
-    const iRem = memberTotalInterestDue(m.id); // একত্রে সুদ
+    const iRem = memberTotalInterestDue(m.id);
     const totalDue = due + fine + pRem + iRem;
     const upiUri = createUpiPaymentUri(totalDue, "Payment for " + m.id);
 
@@ -1989,7 +1970,6 @@ function renderStatementPreview(){
                 </tr>
             </table>
 
-            <!-- স্টেটমেন্ট পেজ থেকেই পেমেন্ট করার অপশন -->
             <div style="background:#f0fdf4; border:1.5px dashed #16a34a; border-radius:12px; padding:15px; text-align:center;">
                 <h4 style="color:#166534; margin-bottom:6px;">💳 সরাসরি পেমেন্ট সুবিধা (UPI / QR / Apps)</h4>
                 <p style="font-size:12px; color:var(--muted); margin-bottom:10px;">মেম্বার বা অ্যাডমিন এই স্টেটমেন্ট থেকে সরাসরি পেমেন্ট পরিশোধ করতে পারবেন:</p>
@@ -2015,7 +1995,7 @@ function printIndividualCustomerStatement(memberId){
     const due = memberSavingsDue(m);
     const fine = memberFineDue(m);
     const pRem = memberTotalPrincipalRemaining(m.id);
-    const iRem = memberTotalInterestDue(m.id); // একত্রে সুদ
+    const iRem = memberTotalInterestDue(m.id);
     const totalDue = due + fine + pRem + iRem;
 
     const html = `
@@ -2114,7 +2094,6 @@ function saveSettings(){
     toast("সেটিংস সংরক্ষিত হয়েছে!");
 }
 
-// মোবাইল ও কম্পিউটার লাইভ সিঙ্ক
 function setupStoredFirebase(){
     const savedUrl = localStorage.getItem("SAMITI_FIREBASE_URL");
     if(savedUrl){
@@ -2183,7 +2162,7 @@ function importBackupFile(e){
 }
 
 function closeModal(id){
-    document.getElementById(id).classList.remove("show");
+    document.getElementById("modal").classList.remove("show");
 }
 
 function toast(msg){
