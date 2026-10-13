@@ -796,7 +796,7 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
                             <small style="color:var(--muted); font-size:11px;">এই তারিখের আগে কোনো ফাইন অটো অ্যাড হবে না।</small>
                         </div>
                         <div class="form-group">
-                            <label>৩ মাস বাকি থাকলে ফাইন (₹)</label>
+                            <label>৩ মাস বাকি থাকলে মোট পাওনার উপর ফাইন (৪%)</label>
                             <input id="settingFineAmount" type="number" value="100">
                         </div>
                         <div class="form-group">
@@ -1420,15 +1420,19 @@ function memberSavingsDue(member, asOfDate = new Date()){
     const targetDate = parseDateEndOfDay(asOfDate);
     const monthlyRate = Number(db.settings.monthlyDeposit || 500);
     const entryFee = Number(member.entryDeposit !== undefined ? member.entryDeposit : (db.settings.defaultEntryAmount || 5000));
-    
     const joinDate = member.joiningDate || db.settings.samitiStartDate || "2023-05-08";
-    const totalDueMonths = calculateElapsedMonths(joinDate, targetDate);
-
-    const requiredTotal = entryFee + (totalDueMonths * monthlyRate);
+    const parts = String(joinDate).split("T")[0].split("-");
+    // যোগদান/সমিতি শুরুর পরের মাসের ১ তারিখ থেকে মাসিক সঞ্চয় গণনা।
+    const firstDueMonth = new Date(Number(parts[0]), Number(parts[1]), 1, 0, 0, 0, 0);
+    let dueMonths = 0;
+    if(targetDate >= firstDueMonth){
+        dueMonths = (targetDate.getFullYear() - firstDueMonth.getFullYear()) * 12
+            + targetDate.getMonth() - firstDueMonth.getMonth() + 1;
+    }
     const totalPaid = memberSavings(member.id, targetDate);
+    const requiredTotal = entryFee + dueMonths * monthlyRate;
     return Math.max(0, requiredTotal - totalPaid);
 }
-
 function memberDueMonths(member, asOfDate = new Date()){
     if(!member || member.isSettled) return 0;
     const targetDate = parseDateEndOfDay(asOfDate);
@@ -1442,18 +1446,14 @@ function memberFineDue(member, asOfDate = new Date()){
     if(!member || member.isSettled) return 0;
     const effectiveDateStr = db.settings.fineEffectiveDate;
     if(!effectiveDateStr) return 0;
-
-    const effectiveDate = new Date(effectiveDateStr);
     const targetDate = parseDateEndOfDay(asOfDate);
-    if(targetDate < effectiveDate) return 0;
-
-    const dueMonths = memberDueMonths(member, asOfDate);
-    if(dueMonths >= 3){
-        return Number(db.settings.fineAmount || 100);
-    }
-    return 0;
+    if(targetDate < parseDateEndOfDay(effectiveDateStr)) return 0;
+    if(memberDueMonths(member, asOfDate) < 3) return 0;
+    const totalPayable = memberSavingsDue(member, asOfDate)
+        + memberTotalPrincipalRemaining(member.id, asOfDate)
+        + memberTotalInterestDue(member.id, asOfDate);
+    return Math.round(totalPayable * 0.04 * 100) / 100;
 }
-
 function loanPrincipalRemaining(loan, asOfDate = null){
     if(!loan || loan.status === "SETTLED") return 0;
     const targetDate = asOfDate ? parseDateEndOfDay(asOfDate) : null;
@@ -1492,29 +1492,26 @@ function loanInterestMonthsElapsed(loan, asOfDate = new Date()){
 }
 
 function loanInterestRemaining(loan, asOfDate = new Date()){
-    if(!loan || loan.status === "SETTLED") return 0;
+    if(!loan || loan.status === "SETTLED" || !loan.startDate) return 0;
     const targetDate = parseDateEndOfDay(asOfDate);
-    const pRemaining = loanPrincipalRemaining(loan, targetDate);
-    
-    const paidInterest = (db.payments || [])
-        .filter(p => {
-            if(!p || p.loanId !== loan.id || p.status !== "APPROVED") return false;
-            if(targetDate && new Date(p.date) > targetDate) return false;
-            return p.type === "LOAN_INTEREST" || Number(p.interestAmount || 0) > 0;
-        })
-        .reduce((sum, p) => sum + Number(p.type === "LOAN_INTEREST" ? (p.amount || 0) : (p.interestAmount || 0)), 0);
-
-    const months = loanInterestMonthsElapsed(loan, targetDate);
-    if(months <= 0) return 0;
-
-    const rate = 4;
-    const totalAccrued = Number(loan.principal || 0) * (rate / 100) * months;
-    const interestDue = Math.max(0, totalAccrued - paidInterest);
-
-    if(pRemaining === 0 && interestDue <= 0) return 0;
-    return interestDue;
+    const interestStart = getLoanInterestStartDate(loan.startDate);
+    if(targetDate < interestStart) return 0;
+    // প্রতি মাসের ১ তারিখে বাকি থাকা আসলের উপর ৪%; ব্যাকডেটেড পেমেন্ট তারিখ অনুযায়ী আসল কমবে।
+    const firstMonth = new Date(interestStart.getFullYear(), interestStart.getMonth(), 1);
+    const lastMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+    let accrued = 0;
+    for(let cursor = new Date(firstMonth); cursor <= lastMonth; cursor.setMonth(cursor.getMonth() + 1)){
+        const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1, 0, 0, 0, 0);
+        const principalAtMonthStart = loanPrincipalRemaining(loan, new Date(monthStart.getTime() - 1));
+        if(principalAtMonthStart > 0) accrued += principalAtMonthStart * 0.04;
+    }
+    const paidInterest = (db.payments || []).filter(p => {
+        if(!p || p.loanId !== loan.id || p.status !== "APPROVED") return false;
+        if(parseDateEndOfDay(p.date) > targetDate) return false;
+        return p.type === "LOAN_INTEREST" || Number(p.interestAmount || 0) > 0;
+    }).reduce((sum,p) => sum + Number(p.type === "LOAN_INTEREST" ? (p.amount || 0) : (p.interestAmount || 0)),0);
+    return Math.max(0, Math.round((accrued - paidInterest) * 100) / 100);
 }
-
 function memberTotalInterestDue(memberId, asOfDate = new Date()){
     const targetDate = parseDateEndOfDay(asOfDate);
     const memberLoans = (db.loans || []).filter(l => l && l.memberId === memberId && l.status === "APPROVED");
