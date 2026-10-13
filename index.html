@@ -411,7 +411,7 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
     </div>
 </div>
 
-<!-- MEMBER PUBLIC PORTAL (লিংক দিয়ে কোনো মেম্বার ঢুকলে এটি প্রদর্শিত হবে) -->
+<!-- MEMBER PUBLIC PORTAL -->
 <div id="memberPortalScreen" class="member-portal hidden">
     <div class="member-portal-box">
         <div style="text-align:center; margin-bottom:18px;">
@@ -453,7 +453,7 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
                 <h3 id="pageTitle">ড্যাশবোর্ড ও বাকি খাতা</h3>
             </div>
             <div style="text-align:right;">
-                <span id="syncStatusBadge" style="font-size:12px; color:var(--success); font-weight:bold;">🟢 লাইভ স্টোরেজ সক্রিয়</span><br>
+                <span id="syncStatusBadge" style="font-size:12px; color:var(--success); font-weight:bold;">🟢 লোকাল স্টোরেজ প্রস্তুত</span><br>
                 <b style="color:#7c2d12;">অ্যাডমিন প্যানেল</b>
             </div>
         </header>
@@ -964,7 +964,11 @@ let firebaseDbRef = null;
 function saveDB(syncToCloud = true){
     localStorage.setItem(LOCAL_STORAGE_DB_KEY, JSON.stringify(db));
     if(syncToCloud && firebaseDbRef){
-        firebaseDbRef.set(db).catch(err => console.error("Firebase Sync Error:", err));
+        firebaseDbRef.set(db).catch(err => {
+            console.error("Firebase Sync Error:", err);
+            const badge = document.getElementById("syncStatusBadge");
+            if(badge) badge.textContent = "🔴 ক্লাউড সিঙ্ক ব্যর্থ (Rules চেক করুন)";
+        });
     }
 }
 
@@ -1320,7 +1324,7 @@ function sendUpiPaymentLink(memberId, totalDue){
     const upiId = db.settings.adminUpiId || "";
     const upiUrl = createUpiPaymentUri(totalDue, "Due for " + m.id);
 
-    const message = `নমস্কার ${m.name},\nবৈখাকী সমিতিতে আপনার স্টেটমেন্ট ও মোট প্রদেয়: ₹${totalDue}।\n\n🔎 আপনার পূর্ণ হিসাব দেখতে ক্লিক করুন:\n${portalUrl}\n\n💳 সরাসরি PhonePe/Google Pay দিয়ে পরিশোধ করতে ক্লিক করুন:\n${upiUrl || ('UPI ID: ' + upiId)}`;
+    const message = `নমস্কার ${m.name},\nবৈশাখী সমিতিতে আপনার স্টেটমেন্ট ও মোট প্রদেয়: ₹${totalDue}।\n\n🔎 আপনার পূর্ণ হিসাব দেখতে ক্লিক করুন:\n${portalUrl}\n\n💳 সরাসরি PhonePe/Google Pay দিয়ে পরিশোধ করতে ক্লিক করুন:\n${upiUrl || ('UPI ID: ' + upiId)}`;
     
     const phone = String(m.mobile).replace(/\D/g, "");
     const waUrl = `https://wa.me/91${phone}?text=${encodeURIComponent(message)}`;
@@ -1341,7 +1345,7 @@ function shareStatementLinkFromSelect(){
     sendUpiPaymentLink(memberId, totalDue);
 }
 
-// মেম্বার পাবলিক ভিউ পোর্টাল (অ্যাডমিন লিঙ্ক সরানো হয়েছে)
+// মেম্বার পাবলিক ভিউ পোর্টাল
 function openMemberPublicPortal(memberId){
     document.getElementById("loginScreen").classList.add("hidden");
     document.getElementById("app").classList.add("hidden");
@@ -2117,18 +2121,37 @@ function connectFirebase(url){
         if(!firebase.apps.length){
             firebase.initializeApp({ databaseURL: url });
         }
-        firebaseDbRef = firebase.database().ref("samiti_live_data");
         
+        firebaseDbRef = firebase.database().ref("samiti_live_data");
+        const badge = document.getElementById("syncStatusBadge");
+
         firebaseDbRef.on("value", snapshot => {
             const val = snapshot.val();
-            if(val){
+            if(val && val.settings){
                 db = val;
                 localStorage.setItem(LOCAL_STORAGE_DB_KEY, JSON.stringify(db));
                 renderAll();
-                document.getElementById("syncStatusBadge").textContent = "🟢 ক্লাউড লাইভ সংযুক্ত (Live)";
+                if(badge) {
+                    badge.textContent = "🟢 ক্লাউড লাইভ সংযুক্ত (Live)";
+                    badge.style.color = "var(--success)";
+                }
+            } else {
+                firebaseDbRef.set(db);
+                if(badge) {
+                    badge.textContent = "🟢 ক্লাউড লাইভ ডাটা প্রস্তুত";
+                    badge.style.color = "var(--success)";
+                }
             }
+        }, error => {
+            console.error("Firebase Permission/Connection Error:", error);
+            if(badge) {
+                badge.textContent = "🔴 পারমিশন ব্লকড (Rules দেখুন)";
+                badge.style.color = "var(--danger)";
+            }
+            toast("ফায়ারবেস ডাটাবেসে পারমিশন ব্লক করা আছে!");
         });
-        toast("মোবাইল ও পিসির লাইভ সিঙ্ক সক্রিয় হয়েছে!");
+
+        toast("মোবাইল ও পিসির লাইভ সিঙ্ক শুরু হচ্ছে...");
     } catch (e) {
         console.error("Firebase Connection Failed", e);
         toast("ক্লাউড সংযোগ ব্যর্থ হয়েছে!");
@@ -2162,7 +2185,10 @@ function importBackupFile(e){
 }
 
 function closeModal(id){
-    document.getElementById("modal").classList.remove("show");
+    const modalEl = document.getElementById(id);
+    if(modalEl){
+        modalEl.classList.remove("show");
+    }
 }
 
 function toast(msg){
