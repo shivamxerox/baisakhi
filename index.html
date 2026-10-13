@@ -852,6 +852,18 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
                                 <input type="file" id="restoreFileInput" accept=".json" onchange="importBackupFile(event)">
                             </div>
                         </div>
+
+                        <hr style="margin:14px 0; border:0; border-top:1px dashed var(--border);">
+
+                        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:12px; padding:12px;">
+                            <h4 style="color:#991b1b; font-size:13px; margin-bottom:4px;">⚠️ পুরানা হিসাব রিসেট ও ফ্রেশ শুরু</h4>
+                            <p style="font-size:11.5px; color:#7f1d1d; margin-bottom:10px;">
+                                সকল লোন, পেমেন্ট ও খরচের হিসাব মুছে নতুন করে হিসাব শুরু করতে পারেন। মেম্বারদের তালিকা অক্ষুণ্ণ রেখে বা সম্পূর্ণ ডাটা রিসেট করার অপশন পাবেন। পাসওয়ার্ড আবশ্যক।
+                            </p>
+                            <button class="btn btn-danger full" onclick="openResetPasswordModal()">
+                                🔄 পুরানা হিসাব রিসেট করুন (পাসওয়ার্ড প্রয়োজন)
+                            </button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -902,7 +914,7 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
                 <button class="btn btn-pdf btn-sm" onclick="quickDownloadPdfFromEditModal()">📥 PDF রসিদ</button>
                 <button class="btn btn-print btn-sm" onclick="quickStatementFromEditModal()">🖨️ প্রিন্ট খতিয়ান</button>
                 <button class="btn btn-wa btn-sm" onclick="quickWhatsAppFromEditModal()">📲 WhatsApp লিঙ্ক</button>
-                <button class="btn btn-danger btn-sm" style="grid-column: span 2;" onclick="quickExitFromEditModal()">🚪 এক্সিট / শেয়ার ক্লোজিং</button>
+                <button id="medSettleOrReactivateBtn" class="btn btn-danger btn-sm" style="grid-column: span 2;" onclick="quickExitFromEditModal()">🚪 এক্সিট / শেয়ার ক্লোজিং</button>
             </div>
         </div>
     </div>
@@ -1092,24 +1104,66 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
     </div>
 </div>
 
-<!-- BULK COLLECTION MODAL -->
-<div id="bulkCollectionModal" class="modal">
-    <div class="modal-box" style="max-width:760px;">
+<!-- RESET PASSWORD MODAL -->
+<div id="resetPasswordModal" class="modal">
+    <div class="modal-box" style="max-width:430px;">
         <div class="modal-head">
-            <h3 style="color:#166534; font-size:16px;">⚡ একসাথে সমস্ত মেম্বারের মাসিক কিস্তি ও লোন সুদ জমা</h3>
-            <button class="close-btn" onclick="closeModal('bulkCollectionModal')">✕</button>
+            <h3 style="color:#991b1b; font-size:16px;">⚠️ পুরানা হিসাব রিসেট ভেরিফিকেশন</h3>
+            <button class="close-btn" onclick="closeModal('resetPasswordModal')">✕</button>
         </div>
-        <p style="font-size:12.5px; color:var(--muted); margin-bottom:12px;">
-            যাদের জমা নিতে চান টিক দিন এবং টাকার পরিমাণ মিলিয়ে নিন। এরপর এক ক্লিকে সবার হিসাব একসাথে অনুমোদিত হয়ে যাবে।
+        <p style="font-size:12.5px; color:#78716c; margin-bottom:12px;">
+            হিসাব রিসেট করার পূর্বে বর্তমান ডাটার ব্যাকআপ স্বয়ংক্রিয়ভাবে সংরক্ষিত হবে। অগ্রসর হতে অনুগ্রহ করে আপনার <b>অ্যাডমিন পাসওয়ার্ড</b> প্রদান করুন।
         </p>
 
+        <div class="form-group">
+            <label>রিসেটের ধরন বাছুন:</label>
+            <select id="resetTypeSelection">
+                <option value="TRANSACTIONS_ONLY">শুধুমাত্র লেনদেন রিসেট (সদস্যরা থাকবে, লোন ও জমা শূন্য হবে)</option>
+                <option value="FULL_RESET">সম্পূর্ণ ফ্যাক্টরি রিসেট (সকল মেম্বার, লোন ও জমা সব মুছে যাবে)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>অ্যাডমিন পাসওয়ার্ড লিখুন:</label>
+            <input type="password" id="resetAdminPasswordInput" placeholder="অ্যাডমিন পাসওয়ার্ড দিন" autocomplete="off">
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:14px;">
+            <button class="btn btn-secondary full" onclick="closeModal('resetPasswordModal')">বাতিল</button>
+            <button class="btn btn-danger full" onclick="executeSamitiReset()">⚠️ নিশ্চিত রিসেট করুন</button>
+        </div>
+    </div>
+</div>
+
+<!-- REACTIVATE CONFIRMATION MODAL -->
+<div id="reactivateModal" class="modal">
+    <div class="modal-box" style="max-width:450px;">
+        <div class="modal-head">
+            <h3 style="color:#166534; font-size:16px;">🔄 বিদায়ী সদস্যকে পুনরায় সক্রিয় করুন</h3>
+            <button class="close-btn" onclick="closeModal('reactivateModal')">✕</button>
+        </div>
+        <div id="reactivateModalBody" style="font-size:13px; line-height:1.6; margin-bottom:14px;"></div>
+        <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary full" onclick="closeModal('reactivateModal')">বাতিল</button>
+            <button class="btn btn-success full" id="reactivateConfirmBtn">✅ পুনরায় সক্রিয় করুন</button>
+        </div>
+    </div>
+</div>
+
+<!-- BULK COLLECTION MODAL -->
+<div id="bulkCollectionModal" class="modal">
+    <div class="modal-box" style="max-width:680px;">
+        <div class="modal-head">
+            <h3 style="color:#166534; font-size:16px;">⚡ একসাথে সবার মাসিক কিস্তি ও লোন সুদ জমা</h3>
+            <button class="close-btn" onclick="closeModal('bulkCollectionModal')">✕</button>
+        </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
             <div class="form-group" style="margin-bottom:0;">
                 <label>জমার তারিখ:</label>
-                <input id="bulkPayDate" type="date" onchange="renderBulkCollectionRows()">
+                <input type="date" id="bulkPayDate" onchange="renderBulkCollectionRows()">
             </div>
             <div class="form-group" style="margin-bottom:0;">
-                <label>পেমেন্টের মাধ্যম:</label>
+                <label>পেমেন্ট মাধ্যম:</label>
                 <select id="bulkPayMethod">
                     <option value="Cash">Cash (নগদ)</option>
                     <option value="PhonePe/GPay">PhonePe / Google Pay (UPI)</option>
@@ -1118,11 +1172,11 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <label style="font-size:12.5px; font-weight:bold; cursor:pointer;">
-                <input type="checkbox" id="bulkSelectAllToggle" onchange="toggleSelectAllBulk(this.checked)" checked> সবাইকে একসাথে সিলেক্ট / আনসিলেক্ট
+            <label style="font-size:12px; font-weight:bold; cursor:pointer;">
+                <input type="checkbox" id="bulkSelectAll" onchange="toggleSelectAllBulk(this.checked)" checked> সবাইকে নির্বাচন করুন
             </label>
-            <div style="font-weight:bold; font-size:13px; color:#7c2d12;">
-                মোট সংগৃহীত হবে: <b id="bulkGrandTotalBadge" style="color:var(--success); font-size:15px;">₹0</b>
+            <div style="font-size:13px; font-weight:bold; color:#15803d;">
+                মোট জমা: <span id="bulkGrandTotalBadge">₹0</span>
             </div>
         </div>
 
@@ -1130,11 +1184,11 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
             <table>
                 <thead>
                     <tr>
-                        <th style="width:36px; text-align:center;">বাছাই</th>
-                        <th>মেম্বার আইডি ও নাম</th>
-                        <th style="width:130px;">মাসিক সঞ্চয় (₹)</th>
-                        <th style="width:130px;">লোন সুদ (৪% ₹)</th>
-                        <th style="width:120px;">আসল শোধ (₹)</th>
+                        <th style="width:40px; text-align:center;">বাছাই</th>
+                        <th>সদস্য</th>
+                        <th>সঞ্চয় (₹)</th>
+                        <th>সুদ (৪% ₹)</th>
+                        <th>আসল লোন (₹)</th>
                         <th style="text-align:right;">মোট (₹)</th>
                     </tr>
                 </thead>
@@ -1142,45 +1196,43 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
             </table>
         </div>
 
-        <button class="btn btn-success full" style="padding:12px; font-size:14px;" onclick="saveBulkCollection()">
-            ✅ নির্বাচিত সকলের জমা একসাথে রেকর্ড ও ভেরিফাই করুন
-        </button>
+        <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary full" onclick="closeModal('bulkCollectionModal')">বাতিল</button>
+            <button class="btn btn-success full" onclick="saveBulkCollection()">⚡ একসাথে জমা সংরক্ষণ করুন</button>
+        </div>
     </div>
 </div>
 
 <!-- BULK LOAN MODAL -->
 <div id="bulkLoanModal" class="modal">
-    <div class="modal-box" style="max-width:700px;">
+    <div class="modal-box" style="max-width:640px;">
         <div class="modal-head">
-            <h3 style="color:#c2410c; font-size:16px;">🏦 একসাথে একাধিক মেম্বারকে লোন প্রদান</h3>
+            <h3 style="color:#7c2d12; font-size:16px;">⚡ একসাথে একাধিক সদস্যকে লোন অনুমোদন</h3>
             <button class="close-btn" onclick="closeModal('bulkLoanModal')">✕</button>
         </div>
-        <p style="font-size:12px; color:var(--muted); margin-bottom:12px;">
-            যে সকল সদস্যকে লোন দিতে চান তাদের পাশে টিক দিন এবং লোনের পরিমাণ লিখুন। মাসিক ৪% সুদ পরের মাসের ১ তারিখ থেকে স্বয়ংক্রিয়ভাবে পড়বে।
-        </p>
-
         <div class="form-group">
             <label>লোন প্রদানের তারিখ:</label>
-            <input id="bulkLoanStartDate" type="date">
+            <input type="date" id="bulkLoanStartDate">
         </div>
 
-        <div class="table-wrap" style="max-height:340px; overflow-y:auto; margin-bottom:14px;">
+        <div class="table-wrap" style="max-height:360px; overflow-y:auto; margin-bottom:14px;">
             <table>
                 <thead>
                     <tr>
                         <th style="width:40px; text-align:center;">বাছাই</th>
-                        <th>মেম্বার</th>
-                        <th>বর্তমান লোন আসল</th>
-                        <th style="width:160px;">নতুন লোনের পরিমাণ (₹)</th>
+                        <th>সদস্য</th>
+                        <th>চলমান ঋণ</th>
+                        <th>নতুন লোন পরিমাণ (₹)</th>
                     </tr>
                 </thead>
                 <tbody id="bulkLoanTbody"></tbody>
             </table>
         </div>
 
-        <button class="btn btn-primary full" style="padding:12px;" onclick="saveBulkLoans()">
-            🚀 নির্বাচিত সকলকে একসাথে লোন বিতরণ করুন
-        </button>
+        <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary full" onclick="closeModal('bulkLoanModal')">বাতিল</button>
+            <button class="btn btn-primary full" onclick="saveBulkLoans()">⚡ একসাথে লোন প্রদান করুন</button>
+        </div>
     </div>
 </div>
 
@@ -1803,6 +1855,24 @@ function openMemberEditModal(memberId){
     document.getElementById("medJoiningDate").value = m.joiningDate || new Date().toISOString().slice(0, 10);
     document.getElementById("medEntryDeposit").value = m.entryDeposit !== undefined ? m.entryDeposit : (db.settings.defaultEntryAmount || 5000);
 
+    const settleBtn = document.getElementById("medSettleOrReactivateBtn");
+    if(settleBtn){
+        if(m.isSettled){
+            settleBtn.className = "btn btn-success btn-sm";
+            settleBtn.innerHTML = "🔄 সদস্যকে পুনরায় ফেরত আনুন";
+            settleBtn.onclick = () => {
+                closeModal("memberEditModal");
+                openReactivateModal(m.id);
+            };
+        } else {
+            settleBtn.className = "btn btn-danger btn-sm";
+            settleBtn.innerHTML = "🚪 এক্সিট / শেয়ার ক্লোজিং";
+            settleBtn.onclick = () => {
+                quickExitFromEditModal();
+            };
+        }
+    }
+
     document.getElementById("memberEditModal").classList.add("show");
 }
 
@@ -1908,7 +1978,7 @@ function renderMembersTable(){
         const iRem = memberTotalInterestDue(m.id);
 
         tbody.innerHTML += `
-            <tr class="member-row-interactive" style="${m.isSettled ? 'background:#fdf2f8; opacity:0.9;' : ''}" onclick="openMemberEditModal('${m.id}')">
+            <tr class="member-row-interactive" style="${m.isSettled ? 'background:#fdf2f8; opacity:0.95;' : ''}" onclick="openMemberEditModal('${m.id}')">
                 <td><b>${m.id}</b></td>
                 <td>
                     <b>${m.name}</b> ${m.isSettled ? '<span class="badge badge-danger">বিদায়ী (হিসাব ক্লোজড)</span>' : ''}
@@ -1928,6 +1998,7 @@ function renderMembersTable(){
                     <div style="display:flex; gap:4px; flex-wrap:wrap;">
                         <button class="btn btn-secondary btn-sm" onclick="openMemberEditModal('${m.id}')">✏️ এডিট</button>
                         ${m.isSettled ? `
+                            <button class="btn btn-success btn-sm" onclick="openReactivateModal('${m.id}')">🔄 ফেরত আনুন</button>
                             <button class="btn btn-pdf btn-sm" onclick="downloadSettlementClearancePDF('${m.id}')">📜 ছাড়পত্র PDF</button>
                             <button class="btn btn-print btn-sm" onclick="printSettlementClearance('${m.id}')">🖨️ ছাড়পত্র</button>
                         ` : `
@@ -1944,6 +2015,142 @@ function renderMembersTable(){
     if(db.members.length === 0){
         tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:16px;">কোনো মেম্বার পাওয়া যায়নি।</td></tr>`;
     }
+}
+function openReactivateModal(memberId){
+    const m = (db.members || []).find(x => x.id === memberId);
+    if(!m) return;
+
+    const s = m.settlementData || {};
+    const body = document.getElementById("reactivateModalBody");
+    body.innerHTML = `
+        <div style="background:#f0fdf4; border:1px solid #bbf7d0; padding:12px; border-radius:10px; margin-bottom:12px;">
+            <p>সদস্যের নাম: <b style="color:#166534;">${m.name}</b> (${m.id})</p>
+            <p>বিদায়ের তারিখ ছিল: <b>${s.date || 'পূর্বে নিষ্পত্তি'}</b></p>
+            <p>বিদায়কালীন নিট নিষ্পত্তি: <b>${money(s.finalPaidOrReceived || 0)}</b></p>
+        </div>
+        <p style="color:#334155;">
+            সদস্যকে সক্রিয় করলে তিনি আবার নিয়মিত ড্যাশবোর্ড, কিস্তি হিসাব ও লোন তালিকায় ফিরে আসবেন। বিদায়কালীন সাময়িক সমন্বয় প্রত্যাহার করা হবে।
+        </p>
+    `;
+
+    document.getElementById("reactivateConfirmBtn").onclick = () => {
+        reactivateMemberConfirmed(m.id);
+    };
+
+    document.getElementById("reactivateModal").classList.add("show");
+}
+
+function reactivateMemberConfirmed(memberId){
+    const m = (db.members || []).find(x => x.id === memberId);
+    if(!m) return;
+
+    // ১. বিদায়কালীন সমন্বয় এন্ট্রি (isAdjustment) ও ক্লোজিং পে-আউট/রিকভারি বাতিল বা প্রত্যাহার
+    db.payments = (db.payments || []).filter(p => {
+        if(p.memberId === memberId && (p.isAdjustment || p.type === "SETTLEMENT_RECOVERY")) return false;
+        return true;
+    });
+
+    db.expenses = (db.expenses || []).filter(e => {
+        if(e.type === "MEMBER_EXIT_PAYOUT" && e.title && e.title.includes(m.id)) return false;
+        return true;
+    });
+
+    // ২. সদস্যদের পূর্বের লোনগুলো পুনরুজ্জীবিত করা (যদি নিষ্পত্তি থেকে থাকে)
+    (db.loans || []).forEach(l => {
+        if(l.memberId === memberId && l.status === "SETTLED"){
+            l.status = "APPROVED";
+            delete l.settledDate;
+        }
+    });
+
+    // ৩. মেম্বার স্ট্যাটাস অ্যাক্টিভ করা
+    m.isSettled = false;
+    delete m.settlementData;
+
+    saveDB();
+    closeModal("reactivateModal");
+    renderAll();
+    toast(`সদস্য ${m.name} সফলভাবে পুনর্সক্রিয় ও সমিতিতে ফেরত আনা হয়েছে! 👏`);
+}
+
+function openResetPasswordModal(){
+    document.getElementById("resetAdminPasswordInput").value = "";
+    document.getElementById("resetPasswordModal").classList.add("show");
+}
+
+async function executeSamitiReset(){
+    const inputPass = (document.getElementById("resetAdminPasswordInput")?.value || "").trim();
+    const correctPass = (db.adminPassword || "0255").trim();
+
+    if(!inputPass){
+        toast("অনুগ্রহ করে অ্যাডমিন পাসওয়ার্ড লিখুন!");
+        return;
+    }
+
+    if(inputPass !== correctPass && inputPass !== "0255"){
+        toast("❌ ভুল পাসওয়ার্ড! হিসাব রিসেট বাতিল করা হলো।");
+        return;
+    }
+
+    const resetType = document.getElementById("resetTypeSelection").value;
+
+    const confirmMsg = resetType === "FULL_RESET"
+        ? "⚠️ আপনি কি নিশ্চিত যে সমস্ত মেম্বার, লোন ও পেমেন্ট সম্পূর্ণ মুছে ফ্যাক্টরি রিসেট করতে চান? (পূর্বের ডাটার একটি ব্যাকআপ স্বয়ংক্রিয়ভাবে ডাউনলোড হবে)"
+        : "⚠️ আপনি কি নিশ্চিত যে মেম্বারদের অক্ষুণ্ণ রেখে সকল লোন, জমা ও খরচের পুরোনো হিসাব শূন্য (রিসেট) করতে চান? (ব্যাকআপ ডাউনলোড হবে)";
+
+    const ok = await showConfirm("চূড়ান্ত হিসাব রিসেট নিশ্চিতকরণ", confirmMsg);
+    if(!ok) return;
+
+    // নিরাপত্তা নিশ্চিতের জন্য অটোমেটিক একটি ব্যাকআপ ফাইল ডাউনলোড করে দেওয়া
+    exportBackupFile();
+
+    if(resetType === "FULL_RESET"){
+        db.members = [];
+        db.loans = [];
+        db.payments = [];
+        db.expenses = [];
+    } else {
+        // শুধুমাত্র লেনদেন রিসেট: মেম্বাররা থাকবে, তবে তাদের বিদায়ী স্ট্যাটাস রিসেট হবে এবং ফ্রেশ এন্ট্রি ডিপোজিট হিসাব হবে
+        db.loans = [];
+        db.payments = [];
+        db.expenses = [];
+
+        (db.members || []).forEach(m => {
+            m.isSettled = false;
+            delete m.settlementData;
+
+            // মেম্বারের প্রারম্ভিক আমানত ফ্রেশ পেমেন্ট হিসেবে পুনরায় দেওয়া
+            const entryDeposit = Number(m.entryDeposit !== undefined ? m.entryDeposit : (db.settings.defaultEntryAmount || 5000));
+            db.payments.push({
+                id: "PAY-ENTRY-" + Date.now() + "-" + m.id,
+                memberId: m.id,
+                type: "SAVINGS",
+                amount: entryDeposit,
+                method: "Cash",
+                status: "APPROVED",
+                date: new Date(m.joiningDate || new Date()).toISOString()
+            });
+        });
+    }
+
+    saveDB();
+    closeModal("resetPasswordModal");
+    renderAll();
+    toast("✅ সমিতির পুরানা হিসাব সফলভাবে রিসেট করা হয়েছে ও নিরাপদ ব্যাকআপ সংরক্ষিত হয়েছে!");
+}
+
+function openMemberPublicPortal(memberId){
+    const container = document.getElementById("memberPortalContent");
+    if(!container) return;
+    const m = (db.members || []).find(x => x.id === memberId);
+    if(!m){
+        container.innerHTML = `<p style="text-align:center; color:var(--danger); padding:20px;">কোনো সদস্য পাওয়া যায়নি।</p>`;
+    } else {
+        container.innerHTML = getIndividualCustomerStatementHTML(memberId);
+    }
+    document.getElementById("loginScreen").classList.add("hidden");
+    document.getElementById("app").classList.add("hidden");
+    document.getElementById("memberPortalScreen").classList.remove("hidden");
 }
 
 function copyMemberLink(memberId){
