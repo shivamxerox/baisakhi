@@ -705,7 +705,7 @@ th{ background:#fff7ed; color:#7c2d12; font-weight:700; }
                     <h2 style="font-size:18px;">💰 সঞ্চয় ও লোন জমা খাতা</h2>
                     <div style="display:flex; gap:6px; flex-wrap:wrap;">
                         <button class="btn btn-success btn-sm" onclick="openBulkCollectionModal()">⚡ একসাথে সবার জমা (Batch)</button>
-                        <button class="btn btn-primary" onclick="openPaymentModal()">+ একক সরাসরি জমা</button>
+                        <button class="btn btn-primary btn-sm" onclick="openPaymentModal()">+ একক সরাসরি জমা</button>
                     </div>
                 </div>
                 <div class="table-wrap">
@@ -1536,13 +1536,23 @@ function money(n){
 }
 
 function parseDateEndOfDay(dateStr) {
-    if(!dateStr) return new Date();
-    if(dateStr instanceof Date) return dateStr;
+    if(!dateStr) {
+        const d = new Date();
+        d.setHours(23, 59, 59, 999);
+        return d;
+    }
+    if(dateStr instanceof Date) {
+        const d = new Date(dateStr.getTime());
+        d.setHours(23, 59, 59, 999);
+        return d;
+    }
     const parts = String(dateStr).split("T")[0].split("-");
     if(parts.length === 3) {
         return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 23, 59, 59, 999);
     }
-    return new Date(dateStr);
+    const d = new Date(dateStr);
+    d.setHours(23, 59, 59, 999);
+    return d;
 }
 
 function memberSavings(memberId, asOfDate = null){
@@ -1562,8 +1572,13 @@ function memberSavingsDue(member, asOfDate = new Date()){
     const monthlyRate = Number(db.settings.monthlyDeposit || 500);
     const entryFee = Number(member.entryDeposit !== undefined ? member.entryDeposit : (db.settings.defaultEntryAmount || 5000));
     const joinDate = member.joiningDate || db.settings.samitiStartDate || "2023-05-08";
+    
+    // যোগদানের পরবর্তী মাসের ১ তারিখ থেকে প্রথম কিস্তি হিসাব শুরু
     const parts = String(joinDate).split("T")[0].split("-");
-    const firstDueMonth = new Date(Number(parts[0]), Number(parts[1]), 1, 0, 0, 0, 0);
+    const joinYear = Number(parts[0]);
+    const joinMonth = Number(parts[1]) - 1;
+    const firstDueMonth = new Date(joinYear, joinMonth + 1, 1, 0, 0, 0, 0);
+    
     let dueMonths = 0;
     if(targetDate >= firstDueMonth){
         dueMonths = (targetDate.getFullYear() - firstDueMonth.getFullYear()) * 12
@@ -1596,22 +1611,54 @@ function memberFineDue(member, asOfDate = new Date()){
     return Math.round(totalPayable * 0.04 * 100) / 100;
 }
 
+function getMemberLoansSorted(memberId){
+    return (db.loans || [])
+        .filter(l => l && l.memberId === memberId)
+        .sort((a, b) => new Date(a.startDate || 0) - new Date(b.startDate || 0));
+}
+
+// সদস্যের সকল লোন একত্রিত করে মোট অবশিষ্ট আসল ঋণ নির্ণয়
+function memberTotalPrincipalRemaining(memberId, asOfDate = null){
+    const targetDate = asOfDate ? parseDateEndOfDay(asOfDate) : null;
+    const loans = (db.loans || []).filter(l => {
+        if(!l || l.memberId !== memberId) return false;
+        if(targetDate && l.startDate && new Date(l.startDate) > targetDate) return false;
+        return true;
+    });
+    const totalPrincipal = loans.reduce((sum, l) => sum + Number(l.principal || 0), 0);
+    const totalPaidPrincipal = (db.payments || []).filter(p => {
+        if(!p || p.memberId !== memberId || p.status !== "APPROVED") return false;
+        if(p.type !== "LOAN" && p.type !== "LOAN_PRINCIPAL") return false;
+        if(targetDate && new Date(p.date) > targetDate) return false;
+        return true;
+    }).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    return Math.max(0, totalPrincipal - totalPaidPrincipal);
+}
+
+// একক লোনের বাকি আসল (কালানুক্রমিকভাবে পরিশোধ সমন্বয়)
 function loanPrincipalRemaining(loan, asOfDate = null){
     if(!loan || loan.status === "SETTLED") return 0;
     const targetDate = asOfDate ? parseDateEndOfDay(asOfDate) : null;
-    const paid = (db.payments || [])
-        .filter(p => {
-            if(!p || p.loanId !== loan.id || (p.type !== "LOAN" && p.type !== "LOAN_PRINCIPAL") || p.status !== "APPROVED") return false;
-            if(targetDate) return new Date(p.date) <= targetDate;
-            return true;
-        })
-        .reduce((sum, p) => sum + Number(p.amount || 0), 0);
-    return Math.max(0, Number(loan.principal || 0) - paid);
-}
+    if(targetDate && loan.startDate && new Date(loan.startDate) > targetDate) return 0;
 
-function memberTotalPrincipalRemaining(memberId, asOfDate = null){
-    const loans = (db.loans || []).filter(l => l && l.memberId === memberId && l.status === "APPROVED");
-    return loans.reduce((sum, l) => sum + loanPrincipalRemaining(l, asOfDate), 0);
+    const sortedLoans = getMemberLoansSorted(loan.memberId);
+    const totalPaidPrincipal = (db.payments || []).filter(p => {
+        if(!p || p.memberId !== loan.memberId || p.status !== "APPROVED") return false;
+        if(p.type !== "LOAN" && p.type !== "LOAN_PRINCIPAL") return false;
+        if(targetDate && new Date(p.date) > targetDate) return false;
+        return true;
+    }).reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    let priorPrincipalNeeded = 0;
+    for(const l of sortedLoans){
+        if(l.id === loan.id) break;
+        priorPrincipalNeeded += Number(l.principal || 0);
+    }
+
+    const availableForThis = Math.max(0, totalPaidPrincipal - priorPrincipalNeeded);
+    const thisLoanPrincipal = Number(loan.principal || 0);
+    return Math.max(0, thisLoanPrincipal - availableForThis);
 }
 
 function getLoanInterestStartDate(loanStartDateStr){
@@ -1622,33 +1669,84 @@ function getLoanInterestStartDate(loanStartDateStr){
     return new Date(year, month + 1, 1, 0, 0, 0, 0);
 }
 
+// একক লোনের সুদ (আসল শোধ হলে ০, সক্রিয় থাকলে পরের মাস থেকে ৪%)
 function loanInterestRemaining(loan, asOfDate = new Date()){
     if(!loan || loan.status === "SETTLED" || !loan.startDate) return 0;
     const targetDate = parseDateEndOfDay(asOfDate);
+    const pRem = loanPrincipalRemaining(loan, targetDate);
+    if(pRem <= 0) return 0;
+
     const interestStart = getLoanInterestStartDate(loan.startDate);
     if(targetDate < interestStart) return 0;
-    
-    // প্রতি মাসের ১ তারিখে অবশিষ্ট আসলের উপর ৪% সুদ
-    const firstMonth = new Date(interestStart.getFullYear(), interestStart.getMonth(), 1);
-    const lastMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-    let accrued = 0;
-    for(let cursor = new Date(firstMonth); cursor <= lastMonth; cursor.setMonth(cursor.getMonth() + 1)){
-        const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1, 0, 0, 0, 0);
-        const principalAtMonthStart = loanPrincipalRemaining(loan, new Date(monthStart.getTime() - 1));
-        if(principalAtMonthStart > 0) accrued += principalAtMonthStart * 0.04;
-    }
-    const paidInterest = (db.payments || []).filter(p => {
-        if(!p || p.loanId !== loan.id || p.status !== "APPROVED") return false;
-        if(parseDateEndOfDay(p.date) > targetDate) return false;
-        return p.type === "LOAN_INTEREST" || Number(p.interestAmount || 0) > 0;
-    }).reduce((sum,p) => sum + Number(p.type === "LOAN_INTEREST" ? (p.amount || 0) : (p.interestAmount || 0)), 0);
-    return Math.max(0, Math.round((accrued - paidInterest) * 100) / 100);
+
+    const monthlyInterest = Math.round(pRem * 0.04 * 100) / 100;
+
+    const targetMonthYear = targetDate.getFullYear() + '-' + String(targetDate.getMonth() + 1).padStart(2, '0');
+    const paidThisMonth = (db.payments || []).filter(p => {
+        if(!p || p.memberId !== loan.memberId || p.status !== "APPROVED") return false;
+        const isInt = p.type === "LOAN_INTEREST" 
+                   || p.type === "INTEREST" 
+                   || p.type === "ALL_LOAN_INTEREST"
+                   || Number(p.interestAmount || 0) > 0;
+        if(!isInt) return false;
+        if(!p.date) return false;
+        const pDate = new Date(p.date);
+        const pMonthYear = pDate.getFullYear() + '-' + String(pDate.getMonth() + 1).padStart(2, '0');
+        return pMonthYear === targetMonthYear;
+    }).reduce((sum, p) => sum + Number(p.interestAmount || p.amount || 0), 0);
+
+    return Math.max(0, Math.round((monthlyInterest - paidThisMonth) * 100) / 100);
 }
 
+// একজন সদস্যের সমস্ত লোন একীভূত করে মোট বকেয়া সুদ (পরের মাসের ১ তারিখ থেকে ৪% হারে)
 function memberTotalInterestDue(memberId, asOfDate = new Date()){
     const targetDate = parseDateEndOfDay(asOfDate);
-    const memberLoans = (db.loans || []).filter(l => l && l.memberId === memberId && l.status === "APPROVED");
-    return memberLoans.reduce((sum, l) => sum + loanInterestRemaining(l, targetDate), 0);
+    const pRem = memberTotalPrincipalRemaining(memberId, targetDate);
+    if(pRem <= 0) return 0;
+
+    const sortedLoans = getMemberLoansSorted(memberId);
+    const activeLoan = sortedLoans.find(l => loanPrincipalRemaining(l, targetDate) > 0) || sortedLoans[sortedLoans.length - 1];
+    if(!activeLoan || !activeLoan.startDate) return 0;
+
+    const interestStart = getLoanInterestStartDate(activeLoan.startDate);
+    if(targetDate < interestStart) return 0;
+
+    const monthlyInterest = Math.round(pRem * 0.04 * 100) / 100;
+
+    const targetMonthYear = targetDate.getFullYear() + '-' + String(targetDate.getMonth() + 1).padStart(2, '0');
+    const paidThisMonth = (db.payments || []).filter(p => {
+        if(!p || p.memberId !== memberId || p.status !== "APPROVED") return false;
+        const isInt = p.type === "LOAN_INTEREST" 
+                   || p.type === "INTEREST" 
+                   || p.type === "ALL_LOAN_INTEREST"
+                   || Number(p.interestAmount || 0) > 0;
+        if(!isInt) return false;
+        if(!p.date) return false;
+        const pDate = new Date(p.date);
+        const pMonthYear = pDate.getFullYear() + '-' + String(pDate.getMonth() + 1).padStart(2, '0');
+        return pMonthYear === targetMonthYear;
+    }).reduce((sum, p) => sum + Number(p.interestAmount || p.amount || 0), 0);
+
+    return Math.max(0, Math.round((monthlyInterest - paidThisMonth) * 100) / 100);
+}
+
+function getActiveLoanForMember(memberId, dateStr = null){
+    const targetDate = dateStr ? parseDateEndOfDay(dateStr) : new Date();
+    const loans = getMemberLoansSorted(memberId);
+    const openLoan = loans.find(l => loanPrincipalRemaining(l, targetDate) > 0);
+    if(openLoan) return openLoan;
+    return loans.length > 0 ? loans[loans.length - 1] : null;
+}
+
+function syncLoanStatuses(){
+    (db.loans || []).forEach(l => {
+        const rem = loanPrincipalRemaining(l);
+        if(rem <= 0){
+            l.status = "SETTLED";
+        } else {
+            l.status = "APPROVED";
+        }
+    });
 }
 
 function memberTotalCashPaid(memberId){
@@ -1681,7 +1779,7 @@ function totalSocietyCash(){
 
 function calculateSocietyNetWorthAndShare(memberId = null){
     const cash = totalSocietyCash();
-    const activeLoans = (db.loans || []).filter(l => l && l.status === "APPROVED");
+    const activeLoans = (db.loans || []).filter(l => l && loanPrincipalRemaining(l) > 0);
     const outstandingPrincipal = activeLoans.reduce((s, l) => s + loanPrincipalRemaining(l), 0);
     const accruedInterest = activeLoans.reduce((s, l) => s + loanInterestRemaining(l), 0);
 
@@ -1727,6 +1825,7 @@ function calculateSocietyNetWorthAndShare(memberId = null){
 
 function renderAll(){
     if(!currentUser) return;
+    syncLoanStatuses();
     renderAdminDashboard();
     renderMembersTable();
     renderLoansTable();
@@ -1746,8 +1845,7 @@ function renderAdminDashboard(){
         .reduce((s, p) => s + Number(p.amount || 0), 0);
     document.getElementById("statSavings").textContent = money(totalSavings);
 
-    const activeLoans = (db.loans || []).filter(l => l && l.status === "APPROVED");
-    const outstandingPrincipal = activeLoans.reduce((s, l) => s + loanPrincipalRemaining(l), 0);
+    const outstandingPrincipal = (db.loans || []).reduce((s, l) => s + loanPrincipalRemaining(l), 0);
     document.getElementById("statLoan").textContent = money(outstandingPrincipal);
 
     let totalDue = 0;
@@ -2016,6 +2114,7 @@ function renderMembersTable(){
         tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:16px;">কোনো মেম্বার পাওয়া যায়নি।</td></tr>`;
     }
 }
+
 function openReactivateModal(memberId){
     const m = (db.members || []).find(x => x.id === memberId);
     if(!m) return;
@@ -2044,7 +2143,6 @@ function reactivateMemberConfirmed(memberId){
     const m = (db.members || []).find(x => x.id === memberId);
     if(!m) return;
 
-    // ১. বিদায়কালীন সমন্বয় এন্ট্রি (isAdjustment) ও ক্লোজিং পে-আউট/রিকভারি বাতিল বা প্রত্যাহার
     db.payments = (db.payments || []).filter(p => {
         if(p.memberId === memberId && (p.isAdjustment || p.type === "SETTLEMENT_RECOVERY")) return false;
         return true;
@@ -2055,15 +2153,6 @@ function reactivateMemberConfirmed(memberId){
         return true;
     });
 
-    // ২. সদস্যদের পূর্বের লোনগুলো পুনরুজ্জীবিত করা (যদি নিষ্পত্তি থেকে থাকে)
-    (db.loans || []).forEach(l => {
-        if(l.memberId === memberId && l.status === "SETTLED"){
-            l.status = "APPROVED";
-            delete l.settledDate;
-        }
-    });
-
-    // ৩. মেম্বার স্ট্যাটাস অ্যাক্টিভ করা
     m.isSettled = false;
     delete m.settlementData;
 
@@ -2101,7 +2190,6 @@ async function executeSamitiReset(){
     const ok = await showConfirm("চূড়ান্ত হিসাব রিসেট নিশ্চিতকরণ", confirmMsg);
     if(!ok) return;
 
-    // নিরাপত্তা নিশ্চিতের জন্য অটোমেটিক একটি ব্যাকআপ ফাইল ডাউনলোড করে দেওয়া
     exportBackupFile();
 
     if(resetType === "FULL_RESET"){
@@ -2110,7 +2198,6 @@ async function executeSamitiReset(){
         db.payments = [];
         db.expenses = [];
     } else {
-        // শুধুমাত্র লেনদেন রিসেট: মেম্বাররা থাকবে, তবে তাদের বিদায়ী স্ট্যাটাস রিসেট হবে এবং ফ্রেশ এন্ট্রি ডিপোজিট হিসাব হবে
         db.loans = [];
         db.payments = [];
         db.expenses = [];
@@ -2119,7 +2206,6 @@ async function executeSamitiReset(){
             m.isSettled = false;
             delete m.settlementData;
 
-            // মেম্বারের প্রারম্ভিক আমানত ফ্রেশ পেমেন্ট হিসেবে পুনরায় দেওয়া
             const entryDeposit = Number(m.entryDeposit !== undefined ? m.entryDeposit : (db.settings.defaultEntryAmount || 5000));
             db.payments.push({
                 id: "PAY-ENTRY-" + Date.now() + "-" + m.id,
@@ -2252,7 +2338,11 @@ function renderLoansTable(){
                 <td>${interestStartDate.toLocaleDateString("bn-IN")}</td>
                 <td style="color:#c2410c;font-weight:bold;">${money(pRem)}</td>
                 <td style="font-weight:bold; color:var(--warning);">${money(iRem)}</td>
-                <td><span class="badge ${pRem === 0 ? 'badge-success':'badge-warning'}">${pRem === 0 ? 'পরিশোধিত':'সক্রিয়'}</span></td>
+                <td>
+                    <span class="badge ${pRem === 0 ? 'badge-success':'badge-warning'}">
+                        ${pRem === 0 ? 'পরিশোধিত' : 'সক্রিয়'}
+                    </span>
+                </td>
                 <td>
                     <div style="display:flex; gap:4px;">
                         <button class="btn btn-primary btn-sm" onclick="openDirectPrincipalPayment('${l.memberId}', '${l.id}', ${pRem})">💵 আসল শোধ</button>
@@ -2326,9 +2416,12 @@ function onAdminSelectPayMember(){
     document.getElementById("admBoxInterestDue").textContent = money(totalIntDue);
     document.getElementById("admBoxTotalDue").textContent = money(due + fine + pRemaining + totalIntDue);
 
-    document.getElementById("comboSavingsAmount").value = due > 0 ? due : (db.settings.monthlyDeposit || 500);
+    // মাসিক সঞ্চয়: বকেয়া থাকলে দেখাবে, এই মাসে জমা হয়ে থাকলে ০ দেখাবে
+    document.getElementById("comboSavingsAmount").value = due > 0 ? due : 0;
     document.getElementById("comboPrincipalAmount").value = "";
-    document.getElementById("comboInterestAmount").value = totalIntDue;
+    
+    // লোন সুদ: পরিশোধিত হয়ে থাকলে ০ দেখাবে, বকেয়া থাকলে ঠিক সেই বকেয়া সুদ
+    document.getElementById("comboInterestAmount").value = totalIntDue > 0 ? totalIntDue : 0;
     updateComboTotal();
 }
 
@@ -2372,8 +2465,8 @@ function saveAdminPayment(){
     const method = document.getElementById("payMethod").value;
     const paymentTimestamp = new Date(dateStr).toISOString();
 
-    const memberLoans = (db.loans || []).filter(l => l.memberId === memberId && l.status === "APPROVED");
-    const defaultLoanId = memberLoans.length > 0 ? memberLoans[0].id : null;
+    const activeLoan = getActiveLoanForMember(memberId, dateStr);
+    const defaultLoanId = activeLoan ? activeLoan.id : null;
 
     if(type === "COMBO_PAY"){
         const savAmt = Number(document.getElementById("comboSavingsAmount").value) || 0;
@@ -2430,10 +2523,6 @@ function saveAdminPayment(){
     toast("পেমেন্ট সফলভাবে জমা হয়েছে!");
 }
 
-/* =========================================================
-   ⚡ একসাথে সমস্ত মেম্বারের মাসিক কিস্তি ও লোন সুদ জমা
-   ========================================================= */
-
 function openBulkCollectionModal(){
     document.getElementById("bulkPayDate").value = new Date().toISOString().slice(0, 10);
     renderBulkCollectionRows();
@@ -2447,7 +2536,6 @@ function renderBulkCollectionRows(){
 
     const dateVal = document.getElementById("bulkPayDate").value;
     const asOfDate = dateVal ? parseDateEndOfDay(dateVal) : new Date();
-    const defaultMonthlyDeposit = Number(db.settings.monthlyDeposit || 500);
 
     const activeMembers = (db.members || []).filter(m => m && !m.isSettled);
 
@@ -2456,7 +2544,10 @@ function renderBulkCollectionRows(){
         const intDue = memberTotalInterestDue(m.id, asOfDate);
         const pRem = memberTotalPrincipalRemaining(m.id, asOfDate);
 
-        const defSavings = dueSavings > 0 ? dueSavings : defaultMonthlyDeposit;
+        // মাসিক সঞ্চয়: এই মাসে জমা দেওয়া থাকলে ০, বাকি থাকলে বাকি পরিমাণ
+        const defSavings = dueSavings > 0 ? dueSavings : 0;
+        
+        // লোন সুদ: এই মাসের সুদ পরিশোধিত হয়ে থাকলে ০, বকেয়া থাকলে ঠিক সেই বকেয়া সুদ
         const defInterest = intDue > 0 ? intDue : 0;
 
         tbody.innerHTML += `
@@ -2466,7 +2557,7 @@ function renderBulkCollectionRows(){
                 </td>
                 <td>
                     <b>${m.name}</b> <small style="color:var(--muted);">(${m.id})</small>
-                    ${pRem > 0 ? `<br><small style="color:#c2410c;">আসল ঋণ: ${money(pRem)}</small>` : ''}
+                    ${pRem > 0 ? `<br><small style="color:#c2410c;">আসল ঋণ: ${money(pRem)} | বকেয়া সুদ: ${money(intDue)}</small>` : ''}
                 </td>
                 <td>
                     <input type="number" id="bulkSav_${m.id}" min="0" value="${defSavings}" oninput="recalcBulkGrandTotal()" style="padding:6px 8px; font-size:12.5px;">
@@ -2548,8 +2639,8 @@ async function saveBulkCollection(){
         const intAmt = Number(document.getElementById(`bulkInt_${memberId}`)?.value) || 0;
         const prin = Number(document.getElementById(`bulkPrin_${memberId}`)?.value) || 0;
 
-        const memberLoans = (db.loans || []).filter(l => l.memberId === memberId && l.status === "APPROVED");
-        const defaultLoanId = memberLoans.length > 0 ? memberLoans[0].id : null;
+        const activeLoan = getActiveLoanForMember(memberId, dateStr);
+        const defaultLoanId = activeLoan ? activeLoan.id : null;
 
         if(sav > 0){
             db.payments.push({
@@ -2599,10 +2690,6 @@ async function saveBulkCollection(){
     renderAll();
     toast(`সফল! ${checkboxes.length} জন সদস্যের জমা সম্পূর্ণ হয়েছে। 🎉`);
 }
-
-/* =========================================================
-   ⚡ একসাথে একাধিক সদস্যকে লোন প্রদান (BULK LOAN)
-   ========================================================= */
 
 function openBulkLoanModal(){
     document.getElementById("bulkLoanStartDate").value = new Date().toISOString().slice(0, 10);
@@ -2857,7 +2944,7 @@ async function confirmMemberSettle(memberId){
 
     if(!ok) return;
 
-    const memberLoans = (db.loans || []).filter(l => l && l.memberId === m.id && l.status === "APPROVED");
+    const memberLoans = (db.loans || []).filter(l => l && l.memberId === m.id && loanPrincipalRemaining(l) > 0);
     memberLoans.forEach(loan => {
         const pRem = loanPrincipalRemaining(loan);
         const iRem = loanInterestRemaining(loan);
@@ -2894,7 +2981,6 @@ async function confirmMemberSettle(memberId){
         }
 
         loan.status = "SETTLED";
-        loan.settledDate = settleDate;
     });
 
     if(isPayableToMember && finalAmount > 0){
@@ -3083,7 +3169,6 @@ function getIndividualCustomerStatementHTML(memberId){
                 </div>
             </div>
 
-            <!-- ভিজ্যুয়াল স্টেটমেন্ট সামারি কার্ড (আগের ডিজাইন বজায় রেখে যোগ করা) -->
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">
                 <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:10px 12px;">
                     <div style="font-size:11.5px; color:#166534; font-weight:bold;">💰 মোট এ যাবত কত টাকা জমা দিল</div>
